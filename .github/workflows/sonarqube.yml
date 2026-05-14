@@ -1,26 +1,3 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-name: Build
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    types: [opened, synchronize, reopened]
-jobs:
-  sonarqube:
-    name: SonarQube
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 # This workflow helps you trigger a SonarQube analysis of your code and populates
 # GitHub Code Scanning alerts with the vulnerabilities found.
 # (this feature is available starting from SonarQube 9.7, Developer Edition and above)
@@ -51,12 +28,16 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-permissions:
-  pull-requests: read # allows SonarQube to decorate PRs with analysis results
+# Clear all global permissions to enforce secure defaults
+permissions: {}
 
 jobs:
   Analysis:
     runs-on: ubuntu-latest
+
+    # Moved strictly to the specific job that requires it
+    permissions:
+      pull-requests: read # allows SonarQube to decorate PRs with analysis results
 
     steps:
       - name: Analyze with SonarQube
