@@ -1,0 +1,179 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Allow public read for connectivity test
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    
+    // Privilege check (must look up in database)
+    function getUserRole() { 
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(userPath) ? get(userPath).data.role : 'none'; 
+    }
+    function isAdmin() { 
+      return isSignedIn() && (
+        request.auth.token.email == 'abdulibrahimu01@gmail.com' || 
+        getUserRole() == 'admin'
+      ); 
+    }
+    function isTeacher() { return isSignedIn() && getUserRole() == 'teacher'; }
+    function isParent() { return isSignedIn() && getUserRole() == 'parent'; }
+
+    // --- Validation Helpers ---
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'role', 'email']) &&
+             (isAdmin() || data.uid == request.auth.uid) &&
+             data.role in ['admin', 'teacher', 'parent', 'student'] &&
+             data.fullName is string && data.fullName.size() > 0 &&
+             data.email is string &&
+             (data.role == 'admin' ? data.email == 'abdulibrahimu01@gmail.com' : true);
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['fullName', 'gender', 'dob', 'form']) &&
+             data.fullName is string && data.fullName.size() <= 100 &&
+             data.gender in ['Male', 'Female'] &&
+             data.form is string &&
+             (data.keys().hasAny(['nectaRegNumber']) ? data.nectaRegNumber is string : true) &&
+             (data.keys().hasAny(['studentUid']) ? data.studentUid is string : true) &&
+             (data.keys().hasAny(['status']) ? data.status is string : true) &&
+             (data.keys().hasAny(['enrolledAt']) ? data.enrolledAt is string : true) &&
+             (data.keys().hasAny(['stream']) ? data.stream is string : true);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['studentId', 'date', 'status', 'term']) &&
+             data.studentId is string &&
+             data.status in ['Present', 'Absent', 'Late'] &&
+             data.term in [1, 2, 3];
+    }
+
+    function isValidGrade(data) {
+      return data.keys().hasAll(['studentId', 'subject', 'score', 'term', 'year', 'recordedBy']) &&
+             data.score is number && data.score >= 0 &&
+             data.recordedBy == request.auth.uid &&
+             (data.keys().hasAny(['maxScore']) ? data.score <= data.maxScore : true);
+    }
+
+    // Helper to check assignment
+    function hasTeachingAssignment(subject, form, stream) {
+      let assignmentId = request.auth.uid + '_' + subject + '_' + form + '_' + stream;
+      return exists(/databases/$(database)/documents/assignments/$(assignmentId));
+    }
+
+    function isValidFee(data) {
+      return data.keys().hasAll(['studentId', 'amount', 'date', 'category', 'term']) &&
+             data.amount is number && data.amount > 0;
+    }
+
+    function isValidPermissionRequest(data) {
+      return data.keys().hasAll(['studentId', 'studentName', 'type', 'reason', 'startDate', 'endDate', 'status', 'requestedAt']) &&
+             data.studentId is string &&
+             data.type in ['Sick', 'Emergency', 'Other'] &&
+             data.status in ['Pending', 'Approved', 'Rejected'];
+    }
+
+    // --- Collections ---
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if (isOwner(userId) || isAdmin()) && isValidUser(incoming());
+      allow update: if isOwner(userId) && 
+                      isValidUser(incoming()) && 
+                      incoming().role == existing().role && // Role immutability for non-admins
+                      incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'preferredLanguage']);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if isAdmin() || isTeacher() || 
+                    (isParent() && existing().parentUid == request.auth.uid) ||
+                    (isSignedIn() && existing().studentUid == request.auth.uid);
+      allow create: if isAdmin() && isValidStudent(incoming());
+      allow update: if (isAdmin() || isTeacher()) && 
+                      isValidStudent(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'gender', 'dob', 'form', 'stream', 'parentUid', 'status', 'nectaRegNumber', 'studentUid', 'enrolledAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAdmin() || isTeacher() || 
+                   (isParent() && get(/databases/$(database)/documents/students/$(existing().studentId)).data.parentUid == request.auth.uid) ||
+                   (isSignedIn() && get(/databases/$(database)/documents/students/$(existing().studentId)).data.studentUid == request.auth.uid);
+      allow create: if (isAdmin() || isTeacher()) && isValidAttendance(incoming());
+      allow update: if (isAdmin() || isTeacher()) && 
+                      isValidAttendance(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reason', 'term']);
+      allow delete: if isAdmin();
+    }
+
+    match /grades/{gradeId} {
+      allow read: if isAdmin() || isTeacher() || 
+                   (isParent() && get(/databases/$(database)/documents/students/$(existing().studentId)).data.parentUid == request.auth.uid) ||
+                   (isSignedIn() && get(/databases/$(database)/documents/students/$(existing().studentId)).data.studentUid == request.auth.uid);
+      allow create: if isAdmin() || (
+        isTeacher() && 
+        isValidGrade(incoming()) && 
+        hasTeachingAssignment(
+          incoming().subject, 
+          get(/databases/$(database)/documents/students/$(incoming().studentId)).data.form,
+          get(/databases/$(database)/documents/students/$(incoming().studentId)).data.stream
+        )
+      );
+      allow update: if isAdmin() || (
+        isTeacher() && 
+        isValidGrade(incoming()) && 
+        existing().recordedBy == request.auth.uid && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['score', 'maxScore', 'category'])
+      );
+      allow delete: if isAdmin() || (
+        isTeacher() && (
+          !('recordedBy' in existing()) || 
+          existing().recordedBy == request.auth.uid
+        )
+      );
+    }
+
+    match /assignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /fees/{feeId} {
+      allow read: if isAdmin() || (isParent() && get(/databases/$(database)/documents/students/$(existing().studentId)).data.parentUid == request.auth.uid);
+      allow create: if isAdmin() && isValidFee(incoming());
+      allow update: if isAdmin() && 
+                      isValidFee(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['amount', 'category', 'term', 'paymentMethod', 'transactionId']);
+      allow delete: if isAdmin();
+    }
+
+    match /permission_requests/{requestId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.get('studentUid', '') == request.auth.uid);
+      allow create: if isSignedIn() && isValidPermissionRequest(incoming()) && 
+                    incoming().keys().hasAll(['studentUid']) &&
+                    incoming().studentUid == request.auth.uid;
+      allow update: if isAdmin() && 
+                    isValidPermissionRequest(incoming()) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminComment', 'reviewedBy', 'reviewedAt']);
+      allow delete: if isAdmin(); // Allow cleanup
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "ElimuPro SMS Tanzania",
+  "description": "A comprehensive Student Management System tailored for Tanzania, featuring NECTA-aligned grading, mobile money fee tracking, and Swahili support.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Student Enrollment",
+    "NECTA Grading",
+    "Fee Management",
+    "Attendance Tracking"
+  ]
+}
