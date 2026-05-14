@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import admin from "firebase-admin";
+import rateLimit from "express-rate-limit";
 
 async function startServer() {
   const app = express();
@@ -21,6 +22,14 @@ async function startServer() {
     }
 
   app.use(express.json());
+
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use(limiter);
 
   // API Route: Health Check
   app.get("/api/health", (req, res) => {
