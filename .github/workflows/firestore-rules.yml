@@ -1,0 +1,37 @@
+name: Firestore Security Rules
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  firestore-rules:
+    name: Firestore Rules Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d8c9e8d3c7e4b5a1d0d6c7f8a9b # v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install security-test dependencies
+        run: npm install --no-save @firebase/rules-unit-testing firebase-tools vitest
+
+      - name: Run Firestore rules tests
+        env:
+          FIREBASE_PROJECT_ID: elimu-pro-sms-test
+        run: npx firebase emulators:exec --project elimu-pro-sms-test --only firestore "npx vitest run tests/firestore.rules.test.ts"
