@@ -26,10 +26,10 @@ jobs:
           cache: npm
 
       - name: Install project dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Install security-test dependencies
-        run: npm install --no-save @firebase/rules-unit-testing firebase-tools vitest
+        run: npm install --no-save --no-audit --no-fund @firebase/rules-unit-testing firebase-tools vitest
 
       - name: Run Firestore rules tests
         env:
