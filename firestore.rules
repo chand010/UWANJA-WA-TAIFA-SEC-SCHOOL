@@ -24,12 +24,7 @@ service cloud.firestore {
       let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
       return exists(userPath) ? get(userPath).data.role : 'none'; 
     }
-    function isAdmin() { 
-      return isSignedIn() && (
-        request.auth.token.email == 'abdulibrahimu01@gmail.com' || 
-        getUserRole() == 'admin'
-      ); 
-    }
+    function isAdmin() { return isSignedIn() && getUserRole() == 'admin'; }
     function isTeacher() { return isSignedIn() && getUserRole() == 'teacher'; }
     function isParent() { return isSignedIn() && getUserRole() == 'parent'; }
 
@@ -46,9 +41,10 @@ service cloud.firestore {
 
     function isValidStudent(data) {
       return data.keys().hasAll(['fullName', 'gender', 'dob', 'form']) &&
-             data.fullName is string && data.fullName.size() <= 100 &&
+             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100 &&
              data.gender in ['Male', 'Female'] &&
-             data.form is string &&
+             data.form is string && data.form.size() > 0 &&
+             data.keys().hasOnly(['fullName', 'gender', 'dob', 'form', 'stream', 'parentUid', 'status', 'nectaRegNumber', 'studentUid', 'enrolledAt']) &&
              (data.keys().hasAny(['nectaRegNumber']) ? data.nectaRegNumber is string : true) &&
              (data.keys().hasAny(['studentUid']) ? data.studentUid is string : true) &&
              (data.keys().hasAny(['status']) ? data.status is string : true) &&
@@ -64,10 +60,11 @@ service cloud.firestore {
     }
 
     function isValidGrade(data) {
-      return data.keys().hasAll(['studentId', 'subject', 'score', 'term', 'year', 'recordedBy']) &&
+      return data.keys().hasAll(['studentId', 'subject', 'score', 'maxScore', 'term', 'year', 'recordedBy']) &&
              data.score is number && data.score >= 0 &&
-             data.recordedBy == request.auth.uid &&
-             (data.keys().hasAny(['maxScore']) ? data.score <= data.maxScore : true);
+             data.maxScore is number && data.maxScore > 0 &&
+             data.score <= data.maxScore &&
+             data.recordedBy == request.auth.uid;
     }
 
     // Helper to check assignment
@@ -107,9 +104,12 @@ service cloud.firestore {
                     (isParent() && existing().parentUid == request.auth.uid) ||
                     (isSignedIn() && existing().studentUid == request.auth.uid);
       allow create: if isAdmin() && isValidStudent(incoming());
-      allow update: if (isAdmin() || isTeacher()) && 
+      allow update: if isAdmin() &&
                       isValidStudent(incoming()) &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'gender', 'dob', 'form', 'stream', 'parentUid', 'status', 'nectaRegNumber', 'studentUid', 'enrolledAt']);
+      allow update: if isTeacher() &&
+                      isValidStudent(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'gender', 'dob', 'form', 'stream', 'status', 'nectaRegNumber']);
       allow delete: if isAdmin();
     }
 
@@ -159,8 +159,9 @@ service cloud.firestore {
     match /fees/{feeId} {
       allow read: if isAdmin() || (isParent() && get(/databases/$(database)/documents/students/$(existing().studentId)).data.parentUid == request.auth.uid);
       allow create: if isAdmin() && isValidFee(incoming());
-      allow update: if isAdmin() && 
+      allow update: if isAdmin() &&
                       isValidFee(incoming()) &&
+                      (!existing().get('confirmed', false) || !incoming().diff(existing()).affectedKeys().hasAny(['amount'])) &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['amount', 'category', 'term', 'paymentMethod', 'transactionId']);
       allow delete: if isAdmin();
     }

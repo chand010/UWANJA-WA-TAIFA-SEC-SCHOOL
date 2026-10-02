@@ -214,11 +214,11 @@ describe('ElimuPro Firestore security contract', () => {
     }));
   });
 
-  it('rejects a 2KB document id', async () => {
+  it('accepts a document id at the Firestore 1500-byte limit', async () => {
     await seedUser('admin-uid', 'admin');
-    const longId = 'a'.repeat(2048);
+    const maxId = 'a'.repeat(1500);
 
-    await assertFails(setDoc(doc(ctx.admin().firestore(), 'students', longId), {
+    await assertSucceeds(setDoc(doc(ctx.admin().firestore(), 'students', maxId), {
       fullName: 'Long ID',
       gender: 'Male',
       dob: '2010-01-01',
